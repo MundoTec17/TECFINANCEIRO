@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinControl — Controle Financeiro Pessoal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  *,:before,:after{box-sizing:border-box}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:#1e293b}
+  ::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}
+  .sidebar-active{background:rgba(99,102,241,.15);border-right:3px solid #6366f1;color:#818cf8!important}
+  .card-green{background:linear-gradient(135deg,#10b981,#059669)}
+  .card-red{background:linear-gradient(135deg,#ef4444,#dc2626)}
+  .card-blue{background:linear-gradient(135deg,#3b82f6,#2563eb)}
+  .card-purple{background:linear-gradient(135deg,#8b5cf6,#7c3aed)}
+  .fade-in{animation:fadeIn .2s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media print{
+    aside,#modal-container,.no-print{display:none!important}
+    main{margin:0!important;padding:0!important}
+    body{background:#fff!important;color:#000!important}
+  }
+</style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+<div id="app"></div>
+<div id="modal-container"></div>
+
+<script>
+'use strict';
+// =====================================================
+// STORAGE
+// =====================================================
+const DB = {
+  get(k, d=null){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
+  set(k,v){localStorage.setItem(k,JSON.stringify(v))},
+  del(k){localStorage.removeItem(k)}
+};
+
+// =====================================================
+// USUARIOS & AUTH
+// =====================================================
+const MASTER = {
+  id:'__master__', name:'Master (SA)', login:'SA', password:'Suporte200',
+  role:'master', active:true,
+  permissions:{dashboard:true,cashflow:true,debts:true,investments:true,reports:true,users:true,permissionsPage:true}
+};
+
+function getUsers(){return [MASTER,...(DB.get('fin_users',[])||[])]}
+function saveUsers(list){DB.set('fin_users',list.filter(u=>u.id!=='__master__'))}
+function getUserById(id){return getUsers().find(u=>u.id===id)||null}
+
+function authenticate(login,pass){
+  return getUsers().find(u=>u.login===login&&u.password===pass&&u.active!==false)||null;
+}
+
+let currentUser = DB.get('fin_session',null);
+
+function doLogin(login,pass){
+  const u=authenticate(login,pass);
+  if(u){currentUser=u;DB.set('fin_session',u);return true;}
+  return false;
+}
+function doLogout(){currentUser=null;DB.del('fin_session');navigate('login');}
+
+function hasPermission(page){
+  if(!currentUser)return false;
+  if(currentUser.role==='master')return true;
+  if(currentUser.role==='admin'){return page!=='permissionsPage';}
+  return !!(currentUser.permissions&&currentUser.permissions[page]);
+}
+
+// =====================================================
+// FINANÇAS — TRANSAÇÕES
+// =====================================================
+function getTx(){return DB.get('fin_transactions',[])||[]}
+function saveTx(list){DB.set('fin_transactions',list)}
+function addTx(t){const list=getTx();list.push({...t,id:genId()});saveTx(list)}
+function delTx(id){saveTx(getTx().filter(t=>t.id!==id))}
+
+// =====================================================
+// FINANÇAS — DÍVIDAS
+// =====================================================
+function getDebts(){return DB.get('fin_debts',[])||[]}
+function saveDebts(list){DB.set('fin_debts',list)}
+function addDebt(d){
+  const list=getDebts();
+  const installmentList=[];
+  const start=new Date(d.startDate+'T12:00:00');
+  for(let i=0;i<d.installments;i++){
+    const due=new Date(start);
+    due.setMonth(due.getMonth()+i);
+    installmentList.push({num:i+1,dueDate:due.toISOString().split('T')[0],paid:false,paidDate:null});
+  }
+  list.push({...d,id:genId(),installmentList});
+  saveDebts(list);
+}
+function updateDebt(debt){
+  const list=getDebts();
+  const i=list.findIndex(d=>d.id===debt.id);
+  if(i>=0)list[i]=debt;
+  saveDebts(list);
+}
+function delDebt(id){saveDebts(getDebts().filter(d=>d.id!==id))}
+
+// =====================================================
+// FINANÇAS — INVESTIMENTOS
+// =====================================================
+function getInvs(){return DB.get('fin_investments',[])||[]}
+function saveInvs(list){DB.set('fin_investments',list)}
+function addInv(inv){const list=getInvs();list.push({...inv,id:genId()});saveInvs(list)}
+function updateInv(inv){
+  const list=getInvs();
+  const i=list.findIndex(x=>x.id===inv.id);
+  if(i>=0)list[i]=inv;
+  saveInvs(list);
+}
+function delInv(id){saveInvs(getInvs().filter(i=>i.id!==id))}
+
+// =====================================================
+// UTILS
+// =====================================================
+function fmt(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0)}
+function fmtDate(s){if(!s)return '-';const[y,m,d]=s.split('-');return`${d}/${m}/${y}`}
+function today(){return new Date().toISOString().split('T')[0]}
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
+function monthLabel(i){return['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i]}
+
+const CAT_INC=['Salário','Freelance','Aluguel Recebido','Investimento','Bônus','Presente','Outros'];
+const CAT_EXP=['Alimentação','Moradia','Transporte','Saúde','Lazer','Educação','Vestuário','Serviços','Assinaturas','Outros'];
+const INV_TYPES=['Renda Fixa','Ações','FII','Tesouro Direto','Criptomoedas','Poupança','Outros'];
+const INV_COLORS=['#6366f1','#10b981','#f59e0b','#3b82f6','#f97316','#14b8a6','#8b5cf6'];
+
+// =====================================================
+// ROUTER
+// =====================================================
+let activePage='login';
+let chartReg={};
+
+function navigate(page){
+  activePage=page;
+  window.location.hash=page;
+  renderApp();
+}
+
+function renderApp(){
+  const hash=window.location.hash.slice(1)||'login';
+  activePage=hash;
+  // destroy charts
+  Object.values(chartReg).forEach(c=>{try{c.destroy()}catch{}});
+  chartReg={};
+
+  if(!currentUser&&hash!=='login'){renderLogin();return;}
+  if(currentUser&&hash==='login'){navigate('dashboard');return;}
+  hash==='login'?renderLogin():renderMain(hash);
+}
+
+window.addEventListener('hashchange',renderApp);
+
+// =====================================================
+// LOGIN
+// =====================================================
+function renderLogin(){
+  document.getElementById('app').innerHTML=`
+  <div class="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 flex items-center justify-center p-4">
+    <div class="w-full max-w-sm fade-in">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-lg shadow-indigo-500/30 mb-4">
+          <i class="fas fa-chart-line text-2xl text-white"></i>
+        </div>
+        <h1 class="text-3xl font-bold tracking-tight">FinControl</h1>
+        <p class="text-gray-400 text-sm mt-1">Controle Financeiro Pessoal</p>
+      </div>
+      <div class="bg-gray-800/80 backdrop-blur rounded-2xl p-7 shadow-2xl border border-gray-700/60">
+        <h2 class="text-base font-semibold text-gray-200 mb-5">Acesse sua conta</h2>
+        <div id="login-err" class="hidden bg-red-500/10 border border-red-500/40 text-red-400 px-3 py-2.5 rounded-lg mb-4 text-sm flex items-center gap-2">
+          <i class="fas fa-circle-exclamation"></i><span id="login-err-msg"></span>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-400 mb-1.5">Usuário</label>
+            <input id="li-user" type="text" placeholder="Digite seu usuário"
+              class="w-full bg-gray-700/60 border border-gray-600/60 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-400 mb-1.5">Senha</label>
+            <div class="relative">
+              <input id="li-pass" type="password" placeholder="Digite sua senha"
+                class="w-full bg-gray-700/60 border border-gray-600/60 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition pr-11">
+              <button onclick="togglePwd('li-pass')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition">
+                <i class="fas fa-eye text-sm"></i>
+              </button>
+            </div>
+          </div>
+          <button onclick="handleLogin()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition text-sm mt-1">
+            Entrar <i class="fas fa-arrow-right ml-1 text-xs"></i>
+          </button>
+        </div>
+      </div>
+      <p class="text-center text-gray-600 text-xs mt-5">FinControl v1.0 · Dados salvos localmente no navegador</p>
+    </div>
+  </div>`;
+  const pu=document.getElementById('li-pass');
+  pu.addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin()});
+  document.getElementById('li-user').addEventListener('keydown',e=>{if(e.key==='Enter')pu.focus()});
+}
+
+function togglePwd(id){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password'}
+
+function handleLogin(){
+  const u=document.getElementById('li-user').value.trim();
+  const p=document.getElementById('li-pass').value;
+  if(doLogin(u,p)){navigate('dashboard');}
+  else{
+    const err=document.getElementById('login-err');
+    document.getElementById('login-err-msg').textContent='Usuário ou senha incorretos, ou conta desativada.';
+    err.classList.remove('hidden');
+  }
+}
+
+// =====================================================
+// LAYOUT PRINCIPAL
+// =====================================================
+const NAV=[
+  {id:'dashboard',label:'Dashboard',icon:'fa-gauge-high',perm:'dashboard'},
+  {id:'cashflow',label:'Caixa',icon:'fa-money-bill-transfer',perm:'cashflow'},
+  {id:'debts',label:'Parcelamentos',icon:'fa-credit-card',perm:'debts'},
+  {id:'investments',label:'Investimentos',icon:'fa-chart-pie',perm:'investments'},
+  {id:'reports',label:'Relatórios',icon:'fa-file-chart-column',perm:'reports'},
+  {id:'users',label:'Usuários',icon:'fa-users',perm:'users'},
+  {id:'permissionsPage',label:'Permissões',icon:'fa-shield-halved',perm:'permissionsPage'},
+];
+
+function renderMain(page){
+  const navItems=NAV.filter(n=>hasPermission(n.perm));
+  if(!hasPermission(page)){
+    const first=navItems[0];
+    if(first){navigate(first.id);return;}
+  }
+  const roleLabel={master:'Master',admin:'Administrador',padrao:'Padrão'}[currentUser.role]||currentUser.role;
+  document.getElementById('app').innerHTML=`
+  <div class="flex h-screen overflow-hidden">
+    <aside class="w-60 bg-gray-800 border-r border-gray-700/80 flex flex-col shrink-0">
+      <div class="px-4 py-5 border-b border-gray-700/80 flex items-center gap-3">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-sm">
+          <i class="fas fa-chart-line text-white text-xs"></i>
+        </div>
+        <span class="font-bold text-white tracking-tight">FinControl</span>
+      </div>
+      <nav class="flex-1 p-2.5 space-y-0.5 overflow-y-auto">
+        ${navItems.map(n=>`
+        <button onclick="navigate('${n.id}')"
+          class="sidebar-item w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition hover:bg-gray-700/60 ${page===n.id?'sidebar-active font-medium':'text-gray-400'}">
+          <i class="fas ${n.icon} w-4 text-center text-xs"></i>${n.label}
+        </button>`).join('')}
+      </nav>
+      <div class="p-3 border-t border-gray-700/80">
+        <div class="flex items-center gap-2.5 px-2 py-1.5 mb-1.5">
+          <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">
+            ${currentUser.name.charAt(0).toUpperCase()}
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-semibold text-white truncate">${currentUser.name}</p>
+            <p class="text-xs text-gray-500">${roleLabel}</p>
+          </div>
+        </div>
+        <button onclick="doLogout()" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-400 hover:bg-gray-700/60 hover:text-red-400 transition">
+          <i class="fas fa-right-from-bracket w-4 text-center"></i>Sair
+        </button>
+      </div>
+    </aside>
+    <main class="flex-1 overflow-y-auto bg-gray-900">
+      <div id="page-content" class="p-6 fade-in"></div>
+    </main>
+  </div>`;
+  renderPage(page);
+}
+
+function renderPage(p){
+  const c=document.getElementById('page-content');
+  if(!c)return;
+  ({dashboard:renderDashboard,cashflow:renderCashFlow,debts:renderDebts,
+    investments:renderInvestments,reports:renderReports,
+    users:renderUsers,permissionsPage:renderPermissions}[p]||renderDashboard)(c);
+}
+
+// =====================================================
+// MODAL
+// =====================================================
+function showModal(title,body,saveFunc,saveLbl='Salvar',extraClass='max-w-lg'){
+  document.getElementById('modal-container').innerHTML=`
+  <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" id="moverlay">
+    <div class="${extraClass} w-full bg-gray-800 rounded-2xl shadow-2xl border border-gray-700/60 fade-in">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-700/60">
+        <h3 class="font-semibold text-white">${title}</h3>
+        <button onclick="closeModal()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="px-6 py-5">${body}</div>
+      <div class="flex gap-3 justify-end px-6 pb-5">
+        <button onclick="closeModal()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition">Cancelar</button>
+        <button id="modal-save-btn" onclick="${saveFunc}()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-semibold transition">${saveLbl}</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('moverlay').addEventListener('click',e=>{if(e.target.id==='moverlay')closeModal()});
+}
+
+function showConfirm(msg,onOk,dangerLbl='Excluir'){
+  document.getElementById('modal-container').innerHTML=`
+  <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" id="moverlay">
+    <div class="max-w-sm w-full bg-gray-800 rounded-2xl shadow-2xl border border-gray-700/60 fade-in p-6">
+      <div class="flex items-start gap-4 mb-5">
+        <div class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+          <i class="fas fa-triangle-exclamation text-red-400"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-white mb-1">Confirmar ação</h3>
+          <p class="text-sm text-gray-400">${msg}</p>
+        </div>
+      </div>
+      <div class="flex gap-3 justify-end">
+        <button onclick="closeModal()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition">Cancelar</button>
+        <button id="confirm-ok" class="px-5 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-semibold transition">${dangerLbl}</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('confirm-ok').addEventListener('click',()=>{closeModal();onOk()});
+  document.getElementById('moverlay').addEventListener('click',e=>{if(e.target.id==='moverlay')closeModal()});
+}
+
+function closeModal(){document.getElementById('modal-container').innerHTML=''}
+function mErr(msg){const e=document.getElementById('modal-err');if(e){e.textContent=msg;e.classList.remove('hidden')}}
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+function renderDashboard(c){
+  const txs=getTx(), debts=getDebts(), invs=getInvs();
+  const income=txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const balance=income-expense;
+  const totalInv=invs.reduce((s,i)=>s+i.investedAmount,0);
+
+  const now=new Date(); now.setHours(0,0,0,0);
+  const next30=new Date(now); next30.setDate(next30.getDate()+30);
+  const upcoming=[];
+  debts.forEach(d=>d.installmentList.forEach(inst=>{
+    if(!inst.paid){
+      const due=new Date(inst.dueDate+'T12:00:00');
+      if(due<=next30)upcoming.push({...inst,debtName:d.name,amount:d.installmentAmount});
+    }
+  }));
+  upcoming.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+
+  const months=[];
+  for(let i=5;i>=0;i--){const d=new Date();d.setMonth(d.getMonth()-i);months.push({y:d.getFullYear(),m:d.getMonth()})}
+  const mbInc=months.map(mo=>txs.filter(t=>t.type==='income'&&new Date(t.date).getFullYear()===mo.y&&new Date(t.date).getMonth()===mo.m).reduce((s,t)=>s+t.amount,0));
+  const mbExp=months.map(mo=>txs.filter(t=>t.type==='expense'&&new Date(t.date).getFullYear()===mo.y&&new Date(t.date).getMonth()===mo.m).reduce((s,t)=>s+t.amount,0));
+  const mbBal=mbInc.map((v,i)=>v-mbExp[i]);
+
+  c.innerHTML=`
+  <div class="mb-5">
+    <h1 class="text-xl font-bold text-white">Dashboard</h1>
+    <p class="text-gray-400 text-sm">Visão geral das suas finanças</p>
+  </div>
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+    <div class="card-green rounded-2xl p-4 shadow-lg">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-green-100 text-xs font-medium">Total de Entradas</p>
+        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center"><i class="fas fa-arrow-trend-up text-white text-xs"></i></div>
+      </div>
+      <p class="text-xl font-bold text-white">${fmt(income)}</p>
+    </div>
+    <div class="card-red rounded-2xl p-4 shadow-lg">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-red-100 text-xs font-medium">Total de Saídas</p>
+        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center"><i class="fas fa-arrow-trend-down text-white text-xs"></i></div>
+      </div>
+      <p class="text-xl font-bold text-white">${fmt(expense)}</p>
+    </div>
+    <div class="card-blue rounded-2xl p-4 shadow-lg">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-blue-100 text-xs font-medium">Saldo Atual</p>
+        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center"><i class="fas fa-wallet text-white text-xs"></i></div>
+      </div>
+      <p class="text-xl font-bold text-white">${fmt(balance)}</p>
+    </div>
+    <div class="card-purple rounded-2xl p-4 shadow-lg">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-purple-100 text-xs font-medium">Total Investido</p>
+        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center"><i class="fas fa-chart-pie text-white text-xs"></i></div>
+      </div>
+      <p class="text-xl font-bold text-white">${fmt(totalInv)}</p>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="xl:col-span-2 bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4">Evolução do Saldo — Últimos 6 meses</h2>
+      <canvas id="dash-chart" height="110"></canvas>
+    </div>
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300 mb-3">Parcelas nos próximos 30 dias</h2>
+      ${upcoming.length===0?'<p class="text-gray-500 text-sm py-6 text-center">Nenhuma parcela nos próximos 30 dias.</p>':`
+      <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+        ${upcoming.map(inst=>{
+          const due=new Date(inst.dueDate+'T12:00:00');
+          const ov=due<now;
+          return`<div class="flex items-center justify-between p-2.5 rounded-xl ${ov?'bg-red-500/10 border border-red-500/20':'bg-gray-700/60'} gap-2">
+            <div class="min-w-0">
+              <p class="text-xs font-medium text-white truncate">${inst.debtName}</p>
+              <p class="text-xs ${ov?'text-red-400':'text-gray-500'}">Parc. ${inst.num} · ${fmtDate(inst.dueDate)}${ov?' · Vencida':''}</p>
+            </div>
+            <p class="text-xs font-semibold text-white shrink-0">${fmt(inst.amount)}</p>
+          </div>`;
+        }).join('')}
+      </div>`}
+    </div>
+  </div>`;
+
+  const ctx=document.getElementById('dash-chart').getContext('2d');
+  chartReg.dash=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:months.map(m=>monthLabel(m.m)+'/'+String(m.y).slice(2)),
+      datasets:[{
+        label:'Saldo',data:mbBal,
+        borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,.12)',
+        borderWidth:2,fill:true,tension:.4,
+        pointBackgroundColor:'#6366f1',pointRadius:4
+      }]
+    },
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{
+      x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7280',font:{size:11}}},
+      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7280',font:{size:11},callback:v=>fmt(v)}}
+    }}
+  });
+}
+
+// =====================================================
+// CAIXA
+// =====================================================
+let cfF={type:'',category:'',from:'',to:''};
+
+function renderCashFlow(c){
+  const all=getTx();
+  let list=all.filter(t=>{
+    if(cfF.type&&t.type!==cfF.type)return false;
+    if(cfF.category&&t.category!==cfF.category)return false;
+    if(cfF.from&&t.date<cfF.from)return false;
+    if(cfF.to&&t.date>cfF.to)return false;
+    return true;
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+
+  const inc=all.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const exp=all.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+
+  c.innerHTML=`
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold text-white">Controle de Caixa</h1>
+      <p class="text-gray-400 text-sm">Entradas e saídas financeiras</p>
+    </div>
+    <button onclick="showAddTx()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-sm font-semibold transition">
+      <i class="fas fa-plus text-xs"></i>Nova Transação
+    </button>
+  </div>
+  <div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5">
+      <p class="text-emerald-400 text-xs font-medium mb-0.5">Entradas Totais</p>
+      <p class="text-lg font-bold text-emerald-400">${fmt(inc)}</p>
+    </div>
+    <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-3.5">
+      <p class="text-red-400 text-xs font-medium mb-0.5">Saídas Totais</p>
+      <p class="text-lg font-bold text-red-400">${fmt(exp)}</p>
+    </div>
+    <div class="${inc-exp>=0?'bg-indigo-500/10 border-indigo-500/20':'bg-red-500/10 border-red-500/20'} border rounded-xl p-3.5">
+      <p class="${inc-exp>=0?'text-indigo-400':'text-red-400'} text-xs font-medium mb-0.5">Saldo</p>
+      <p class="text-lg font-bold ${inc-exp>=0?'text-indigo-400':'text-red-400'}">${fmt(inc-exp)}</p>
+    </div>
+  </div>
+  <div class="bg-gray-800 rounded-xl p-3.5 mb-4 border border-gray-700/60">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      <select id="cf-type" onchange="applyCFF()" class="bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-xs text-white w-full">
+        <option value="">Todos os tipos</option>
+        <option value="income" ${cfF.type==='income'?'selected':''}>Entradas</option>
+        <option value="expense" ${cfF.type==='expense'?'selected':''}>Saídas</option>
+      </select>
+      <select id="cf-cat" onchange="applyCFF()" class="bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-xs text-white w-full">
+        <option value="">Todas categorias</option>
+        ${[...CAT_INC,...CAT_EXP].filter((v,i,a)=>a.indexOf(v)===i).map(c=>`<option ${cfF.category===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <input id="cf-from" type="date" value="${cfF.from}" onchange="applyCFF()" class="bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-xs text-white w-full">
+      <input id="cf-to" type="date" value="${cfF.to}" onchange="applyCFF()" class="bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-xs text-white w-full">
+    </div>
+  </div>
+  <div class="bg-gray-800 rounded-xl border border-gray-700/60 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-700/60 text-gray-500 text-xs uppercase tracking-wider">
+          <th class="px-4 py-3 text-left">Data</th>
+          <th class="px-4 py-3 text-left">Descrição</th>
+          <th class="px-4 py-3 text-left hidden md:table-cell">Categoria</th>
+          <th class="px-4 py-3 text-left">Tipo</th>
+          <th class="px-4 py-3 text-right">Valor</th>
+          <th class="px-4 py-3 text-center w-10"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.length===0?`<tr><td colspan="6" class="text-center py-12 text-gray-500 text-sm">Nenhuma transação encontrada.</td></tr>`:
+        list.map(t=>`
+        <tr class="border-b border-gray-700/40 hover:bg-gray-700/20 transition">
+          <td class="px-4 py-2.5 text-gray-400 text-xs">${fmtDate(t.date)}</td>
+          <td class="px-4 py-2.5 text-white text-sm font-medium">${t.description}</td>
+          <td class="px-4 py-2.5 hidden md:table-cell"><span class="px-2 py-0.5 bg-gray-700 rounded text-gray-400 text-xs">${t.category}</span></td>
+          <td class="px-4 py-2.5">
+            <span class="px-2 py-0.5 rounded text-xs font-medium ${t.type==='income'?'bg-emerald-500/15 text-emerald-400':'bg-red-500/15 text-red-400'}">
+              ${t.type==='income'?'↑ Entrada':'↓ Saída'}
+            </span>
+          </td>
+          <td class="px-4 py-2.5 text-right text-sm font-semibold ${t.type==='income'?'text-emerald-400':'text-red-400'}">
+            ${t.type==='income'?'+':'-'}${fmt(t.amount)}
+          </td>
+          <td class="px-4 py-2.5 text-center">
+            <button onclick="confirmDelTx('${t.id}')" class="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition mx-auto">
+              <i class="fas fa-trash-can text-xs"></i>
+            </button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function applyCFF(){
+  cfF.type=document.getElementById('cf-type').value;
+  cfF.category=document.getElementById('cf-cat').value;
+  cfF.from=document.getElementById('cf-from').value;
+  cfF.to=document.getElementById('cf-to').value;
+  renderPage('cashflow');
+}
+
+function showAddTx(){
+  showModal('Nova Transação',`
+  <div class="space-y-4">
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Tipo *</label>
+        <select id="t-type" onchange="updateCats()" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+          <option value="income">Entrada</option>
+          <option value="expense">Saída</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Data *</label>
+        <input id="t-date" type="date" value="${today()}" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1.5">Descrição *</label>
+      <input id="t-desc" type="text" placeholder="Ex: Salário de Janeiro" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Categoria *</label>
+        <select id="t-cat" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+          ${CAT_INC.map(c=>`<option>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Valor (R$) *</label>
+        <input id="t-amount" type="number" min="0.01" step="0.01" placeholder="0,00" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div id="modal-err" class="hidden text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg"></div>
+  </div>`,'saveTx');
+}
+
+function updateCats(){
+  const type=document.getElementById('t-type').value;
+  const cats=type==='income'?CAT_INC:CAT_EXP;
+  document.getElementById('t-cat').innerHTML=cats.map(c=>`<option>${c}</option>`).join('');
+}
+
+function saveTx(){
+  const type=document.getElementById('t-type').value;
+  const date=document.getElementById('t-date').value;
+  const description=document.getElementById('t-desc').value.trim();
+  const category=document.getElementById('t-cat').value;
+  const amount=parseFloat(document.getElementById('t-amount').value);
+  if(!date||!description||!amount||amount<=0)return mErr('Preencha todos os campos corretamente.');
+  addTx({type,date,description,category,amount});
+  closeModal();renderPage('cashflow');
+}
+
+function confirmDelTx(id){
+  showConfirm('Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita.',()=>{delTx(id);renderPage('cashflow')});
+}
+
+// =====================================================
+// PARCELAMENTOS
+// =====================================================
+function renderDebts(c){
+  const debts=getDebts();
+  const now=new Date(); now.setHours(0,0,0,0);
+
+  c.innerHTML=`
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold text-white">Parcelamentos</h1>
+      <p class="text-gray-400 text-sm">Gerencie dívidas e parcelas</p>
+    </div>
+    <button onclick="showAddDebt()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-sm font-semibold transition">
+      <i class="fas fa-plus text-xs"></i>Nova Dívida
+    </button>
+  </div>
+  ${debts.length===0?`
+  <div class="text-center py-20 text-gray-600">
+    <i class="fas fa-credit-card text-5xl mb-4 opacity-20"></i>
+    <p class="text-sm">Nenhuma dívida cadastrada.</p>
+  </div>`:
+  `<div class="space-y-3" id="debts-list">
+    ${debts.map(debt=>{
+      const paid=debt.installmentList.filter(i=>i.paid).length;
+      const total=debt.installmentList.length;
+      const pct=total>0?Math.round(paid/total*100):0;
+      const remaining=(total-paid)*debt.installmentAmount;
+      const overdue=debt.installmentList.filter(i=>!i.paid&&new Date(i.dueDate+'T12:00:00')<now).length;
+      return`
+      <div class="bg-gray-800 rounded-2xl border border-gray-700/60 overflow-hidden">
+        <div class="p-4">
+          <div class="flex items-start justify-between mb-2.5">
+            <div>
+              <h3 class="font-semibold text-white">${debt.name}</h3>
+              <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-gray-400">
+                <span>${fmt(debt.installmentAmount)}/parc.</span>
+                <span>·</span><span>${paid}/${total} pagas</span>
+                ${overdue>0?`<span class="text-red-400 font-medium">⚠ ${overdue} vencida(s)</span>`:''}
+              </div>
+            </div>
+            <div class="text-right shrink-0 ml-3">
+              <p class="text-xs text-gray-500">Restante</p>
+              <p class="font-bold text-white text-sm">${fmt(remaining)}</p>
+              <button onclick="confirmDelDebt('${debt.id}')" class="text-gray-600 hover:text-red-400 text-xs mt-0.5 transition">
+                <i class="fas fa-trash-can text-xs"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mb-2.5">
+            <div class="flex justify-between text-xs text-gray-500 mb-1"><span>Progresso</span><span>${pct}%</span></div>
+            <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div class="h-full bg-indigo-500 rounded-full" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <button onclick="toggleInst('${debt.id}')" class="text-indigo-400 text-xs hover:text-indigo-300 transition flex items-center gap-1">
+            <i class="fas fa-chevron-down" id="chev-${debt.id}"></i>Ver parcelas
+          </button>
+        </div>
+        <div id="inst-${debt.id}" class="hidden border-t border-gray-700/60 max-h-64 overflow-y-auto">
+          ${debt.installmentList.map(inst=>{
+            const due=new Date(inst.dueDate+'T12:00:00');
+            const ov=!inst.paid&&due<now;
+            return`
+            <div class="flex items-center justify-between px-4 py-2.5 border-b border-gray-700/40 ${ov?'bg-red-500/5':inst.paid?'bg-emerald-500/5':''}">
+              <div class="flex items-center gap-3">
+                <input type="checkbox" ${inst.paid?'checked':''} onchange="toggleInstPaid('${debt.id}',${inst.num-1})"
+                  class="w-4 h-4 rounded accent-indigo-500 cursor-pointer">
+                <div>
+                  <p class="text-xs font-medium ${inst.paid?'line-through text-gray-500':'text-white'}">Parcela ${inst.num}/${total}</p>
+                  <p class="text-xs ${ov?'text-red-400':'text-gray-500'}">${fmtDate(inst.dueDate)}${ov?' · Vencida':''}${inst.paid&&inst.paidDate?' · Paga em '+fmtDate(inst.paidDate):''}</p>
+                </div>
+              </div>
+              <p class="text-xs font-semibold ${inst.paid?'text-gray-500':'text-white'}">${fmt(debt.installmentAmount)}</p>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`}`;
+}
+
+function toggleInst(id){
+  const el=document.getElementById(`inst-${id}`);
+  const ch=document.getElementById(`chev-${id}`);
+  el.classList.toggle('hidden');
+  ch.className=el.classList.contains('hidden')?'fas fa-chevron-down':'fas fa-chevron-up';
+}
+
+function toggleInstPaid(debtId,idx){
+  const debts=getDebts();
+  const debt=debts.find(d=>d.id===debtId);
+  if(!debt)return;
+  debt.installmentList[idx].paid=!debt.installmentList[idx].paid;
+  debt.installmentList[idx].paidDate=debt.installmentList[idx].paid?today():null;
+  updateDebt(debt);
+  renderPage('debts');
+}
+
+function showAddDebt(){
+  showModal('Nova Dívida / Parcelamento',`
+  <div class="space-y-4">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1.5">Nome da Dívida *</label>
+      <input id="d-name" type="text" placeholder="Ex: Cartão de Crédito, Financiamento do Carro" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Valor Total (R$) *</label>
+        <input id="d-total" type="number" min="0.01" step="0.01" placeholder="0,00" oninput="previewInst()" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Nº de Parcelas *</label>
+        <input id="d-n" type="number" min="1" step="1" placeholder="12" oninput="previewInst()" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Data da 1ª Parcela *</label>
+        <input id="d-start" type="date" value="${today()}" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Juros ao mês (%)</label>
+        <input id="d-rate" type="number" min="0" step="0.01" placeholder="0,00 (sem juros)" oninput="previewInst()" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div id="d-preview" class="hidden bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-4 py-3">
+      <p class="text-indigo-400 text-sm">Valor por parcela: <strong id="d-prev-val" class="text-white"></strong></p>
+    </div>
+    <div id="modal-err" class="hidden text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg"></div>
+  </div>`,'saveDebt');
+}
+
+function previewInst(){
+  const total=parseFloat(document.getElementById('d-total')?.value||0);
+  const n=parseInt(document.getElementById('d-n')?.value||0);
+  const rate=(parseFloat(document.getElementById('d-rate')?.value||0))/100;
+  if(total>0&&n>0){
+    const amt=rate>0?total*(rate*Math.pow(1+rate,n))/(Math.pow(1+rate,n)-1):total/n;
+    document.getElementById('d-prev-val').textContent=fmt(amt);
+    document.getElementById('d-preview').classList.remove('hidden');
+  }else{
+    document.getElementById('d-preview').classList.add('hidden');
+  }
+}
+
+function saveDebt(){
+  const name=document.getElementById('d-name').value.trim();
+  const total=parseFloat(document.getElementById('d-total').value);
+  const n=parseInt(document.getElementById('d-n').value);
+  const startDate=document.getElementById('d-start').value;
+  const rate=(parseFloat(document.getElementById('d-rate').value||0))/100;
+  if(!name||!total||!n||!startDate||isNaN(total)||isNaN(n)||n<1)return mErr('Preencha todos os campos obrigatórios.');
+  const installmentAmount=rate>0?total*(rate*Math.pow(1+rate,n))/(Math.pow(1+rate,n)-1):total/n;
+  addDebt({name,totalAmount:total,installments:n,startDate,interestRate:rate*100,installmentAmount});
+  closeModal();renderPage('debts');
+}
+
+function confirmDelDebt(id){
+  showConfirm('Tem certeza que deseja excluir esta dívida e todas as parcelas?',()=>{delDebt(id);renderPage('debts')});
+}
+
+// =====================================================
+// INVESTIMENTOS
+// =====================================================
+let editInvId=null;
+
+function renderInvestments(c){
+  const invs=getInvs();
+  const totalInv=invs.reduce((s,i)=>s+i.investedAmount,0);
+  const totalCur=invs.reduce((s,i)=>s+(i.currentAmount||i.investedAmount),0);
+  const ret=totalInv>0?(totalCur-totalInv)/totalInv*100:0;
+
+  const byType={};
+  INV_TYPES.forEach(t=>{byType[t]=0});
+  invs.forEach(i=>{byType[i.type]=(byType[i.type]||0)+i.investedAmount});
+  const chartTypes=INV_TYPES.filter(t=>byType[t]>0);
+  const chartVals=chartTypes.map(t=>byType[t]);
+
+  c.innerHTML=`
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold text-white">Carteira de Investimentos</h1>
+      <p class="text-gray-400 text-sm">Acompanhe aportes e rentabilidade</p>
+    </div>
+    <button onclick="showAddInv()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-sm font-semibold transition">
+      <i class="fas fa-plus text-xs"></i>Novo Aporte
+    </button>
+  </div>
+  <div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3.5">
+      <p class="text-indigo-400 text-xs font-medium mb-0.5">Total Investido</p>
+      <p class="text-lg font-bold text-indigo-400">${fmt(totalInv)}</p>
+    </div>
+    <div class="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5">
+      <p class="text-blue-400 text-xs font-medium mb-0.5">Valor Atual</p>
+      <p class="text-lg font-bold text-blue-400">${fmt(totalCur)}</p>
+    </div>
+    <div class="${ret>=0?'bg-emerald-500/10 border-emerald-500/20':'bg-red-500/10 border-red-500/20'} border rounded-xl p-3.5">
+      <p class="${ret>=0?'text-emerald-400':'text-red-400'} text-xs font-medium mb-0.5">Rentabilidade</p>
+      <p class="text-lg font-bold ${ret>=0?'text-emerald-400':'text-red-400'}">${ret>=0?'+':''}${ret.toFixed(2)}%</p>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4">Distribuição por Tipo</h2>
+      ${chartTypes.length===0?'<p class="text-gray-500 text-sm text-center py-10">Nenhum investimento ainda.</p>':`<canvas id="inv-chart" height="220"></canvas>`}
+    </div>
+    <div class="xl:col-span-2 bg-gray-800 rounded-2xl border border-gray-700/60 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-700/60">
+        <h2 class="text-sm font-semibold text-gray-300">Meus Investimentos</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-700/60 text-gray-500 text-xs uppercase tracking-wider">
+              <th class="px-4 py-3 text-left">Nome</th>
+              <th class="px-4 py-3 text-left">Tipo</th>
+              <th class="px-4 py-3 text-right">Investido</th>
+              <th class="px-4 py-3 text-right">Atual</th>
+              <th class="px-4 py-3 text-right">Rentab.</th>
+              <th class="px-4 py-3 text-center w-16"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invs.length===0?`<tr><td colspan="6" class="text-center py-10 text-gray-500 text-sm">Nenhum investimento cadastrado.</td></tr>`:
+            invs.map(inv=>{
+              const cur=inv.currentAmount||inv.investedAmount;
+              const r=inv.investedAmount>0?(cur-inv.investedAmount)/inv.investedAmount*100:0;
+              return`
+              <tr class="border-b border-gray-700/40 hover:bg-gray-700/20 transition">
+                <td class="px-4 py-2.5 text-white font-medium text-sm">${inv.name}</td>
+                <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-gray-700 rounded text-gray-400 text-xs">${inv.type}</span></td>
+                <td class="px-4 py-2.5 text-right text-gray-300 text-xs">${fmt(inv.investedAmount)}</td>
+                <td class="px-4 py-2.5 text-right text-white text-xs">${fmt(cur)}</td>
+                <td class="px-4 py-2.5 text-right text-xs font-semibold ${r>=0?'text-emerald-400':'text-red-400'}">${r>=0?'+':''}${r.toFixed(2)}%</td>
+                <td class="px-4 py-2.5 text-center">
+                  <button onclick="showAddInv('${inv.id}')" class="w-6 h-6 inline-flex items-center justify-center rounded text-gray-600 hover:text-indigo-400 hover:bg-indigo-400/10 transition mr-0.5"><i class="fas fa-pen text-xs"></i></button>
+                  <button onclick="confirmDelInv('${inv.id}')" class="w-6 h-6 inline-flex items-center justify-center rounded text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition"><i class="fas fa-trash-can text-xs"></i></button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  if(chartTypes.length>0){
+    const ctx=document.getElementById('inv-chart').getContext('2d');
+    chartReg.inv=new Chart(ctx,{
+      type:'doughnut',
+      data:{
+        labels:chartTypes,
+        datasets:[{data:chartVals,
+          backgroundColor:chartTypes.map(t=>INV_COLORS[INV_TYPES.indexOf(t)]||'#6366f1'),
+          borderWidth:2,borderColor:'#1f2937'}]
+      },
+      options:{responsive:true,plugins:{
+        legend:{position:'bottom',labels:{color:'#9ca3af',padding:8,font:{size:11}}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.raw)}`}}
+      }}
+    });
+  }
+}
+
+function showAddInv(id=null){
+  editInvId=id||null;
+  const inv=id?getInvs().find(i=>i.id===id):null;
+  showModal(inv?'Editar Investimento':'Novo Aporte',`
+  <div class="space-y-4">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1.5">Nome do Ativo *</label>
+      <input id="inv-name" type="text" value="${inv?.name||''}" placeholder="Ex: Tesouro Selic 2029, PETR4" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Tipo *</label>
+        <select id="inv-type" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+          ${INV_TYPES.map(t=>`<option ${inv?.type===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Data do Aporte *</label>
+        <input id="inv-date" type="date" value="${inv?.date||today()}" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Valor Investido (R$) *</label>
+        <input id="inv-inv" type="number" min="0.01" step="0.01" value="${inv?.investedAmount||''}" placeholder="0,00" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Valor Atual (R$)</label>
+        <input id="inv-cur" type="number" min="0" step="0.01" value="${inv?.currentAmount||''}" placeholder="Deixe vazio = igual ao investido" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div id="modal-err" class="hidden text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg"></div>
+  </div>`,'saveInv');
+}
+
+function saveInv(){
+  const name=document.getElementById('inv-name').value.trim();
+  const type=document.getElementById('inv-type').value;
+  const date=document.getElementById('inv-date').value;
+  const investedAmount=parseFloat(document.getElementById('inv-inv').value);
+  const cur=parseFloat(document.getElementById('inv-cur').value);
+  const currentAmount=isNaN(cur)?investedAmount:cur;
+  if(!name||!date||isNaN(investedAmount)||investedAmount<=0)return mErr('Preencha todos os campos obrigatórios.');
+  if(editInvId){updateInv({id:editInvId,name,type,date,investedAmount,currentAmount});}
+  else{addInv({name,type,date,investedAmount,currentAmount});}
+  closeModal();renderPage('investments');
+}
+
+function confirmDelInv(id){
+  showConfirm('Tem certeza que deseja excluir este investimento?',()=>{delInv(id);renderPage('investments')});
+}
+
+// =====================================================
+// RELATÓRIOS
+// =====================================================
+function renderReports(c){
+  const txs=getTx();
+  const months=[];
+  for(let i=5;i>=0;i--){const d=new Date();d.setMonth(d.getMonth()-i);months.push({y:d.getFullYear(),m:d.getMonth(),label:monthLabel(d.getMonth())+'/'+String(d.getFullYear()).slice(2)})}
+
+  const inc=months.map(mo=>txs.filter(t=>t.type==='income'&&new Date(t.date).getFullYear()===mo.y&&new Date(t.date).getMonth()===mo.m).reduce((s,t)=>s+t.amount,0));
+  const exp=months.map(mo=>txs.filter(t=>t.type==='expense'&&new Date(t.date).getFullYear()===mo.y&&new Date(t.date).getMonth()===mo.m).reduce((s,t)=>s+t.amount,0));
+
+  const byCat={};
+  CAT_EXP.forEach(c=>{byCat[c]=0});
+  txs.filter(t=>t.type==='expense').forEach(t=>{byCat[t.category]=(byCat[t.category]||0)+t.amount});
+  const catL=Object.keys(byCat).filter(k=>byCat[k]>0);
+  const catV=catL.map(k=>byCat[k]);
+  const catColors=['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16'];
+
+  c.innerHTML=`
+  <div class="flex items-center justify-between mb-5 no-print">
+    <div>
+      <h1 class="text-xl font-bold text-white">Relatórios</h1>
+      <p class="text-gray-400 text-sm">Análise financeira detalhada</p>
+    </div>
+    <button onclick="window.print()" class="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-xl text-sm transition">
+      <i class="fas fa-print text-xs"></i>Imprimir
+    </button>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4">Entradas × Saídas por Mês</h2>
+      <canvas id="rep-bar" height="200"></canvas>
+    </div>
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4">Gastos por Categoria</h2>
+      ${catL.length===0?'<p class="text-gray-500 text-sm text-center py-10">Nenhuma despesa registrada.</p>':`<canvas id="rep-pie" height="200"></canvas>`}
+    </div>
+  </div>
+  <div class="bg-gray-800 rounded-2xl border border-gray-700/60 overflow-hidden">
+    <div class="px-5 py-4 border-b border-gray-700/60">
+      <h2 class="text-sm font-semibold text-gray-300">Resumo Mensal</h2>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-700/60 text-gray-500 text-xs uppercase tracking-wider">
+          <th class="px-4 py-3 text-left">Mês</th>
+          <th class="px-4 py-3 text-right">Entradas</th>
+          <th class="px-4 py-3 text-right">Saídas</th>
+          <th class="px-4 py-3 text-right">Saldo do Mês</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${months.map((mo,i)=>`
+        <tr class="border-b border-gray-700/40 hover:bg-gray-700/20">
+          <td class="px-4 py-2.5 text-white font-medium text-sm">${mo.label}</td>
+          <td class="px-4 py-2.5 text-right text-emerald-400 text-sm">${fmt(inc[i])}</td>
+          <td class="px-4 py-2.5 text-right text-red-400 text-sm">${fmt(exp[i])}</td>
+          <td class="px-4 py-2.5 text-right font-semibold text-sm ${inc[i]-exp[i]>=0?'text-white':'text-red-400'}">${fmt(inc[i]-exp[i])}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+
+  const ctx1=document.getElementById('rep-bar').getContext('2d');
+  chartReg.bar=new Chart(ctx1,{
+    type:'bar',
+    data:{
+      labels:months.map(m=>m.label),
+      datasets:[
+        {label:'Entradas',data:inc,backgroundColor:'rgba(16,185,129,.7)',borderRadius:5},
+        {label:'Saídas',data:exp,backgroundColor:'rgba(239,68,68,.7)',borderRadius:5}
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{labels:{color:'#9ca3af',font:{size:11}}}},
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7280',font:{size:11}}},
+        y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#6b7280',font:{size:11},callback:v=>fmt(v)}}
+      }}
+  });
+
+  if(catL.length>0){
+    const ctx2=document.getElementById('rep-pie').getContext('2d');
+    chartReg.pie=new Chart(ctx2,{
+      type:'pie',
+      data:{
+        labels:catL,
+        datasets:[{data:catV,backgroundColor:catColors.slice(0,catL.length),borderWidth:2,borderColor:'#1f2937'}]
+      },
+      options:{responsive:true,plugins:{
+        legend:{position:'bottom',labels:{color:'#9ca3af',padding:6,font:{size:10}}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.raw)}`}}
+      }}
+    });
+  }
+}
+
+// =====================================================
+// USUÁRIOS
+// =====================================================
+function renderUsers(c){
+  const users=getUsers();
+  c.innerHTML=`
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold text-white">Gestão de Usuários</h1>
+      <p class="text-gray-400 text-sm">Cadastre e gerencie os usuários do sistema</p>
+    </div>
+    <button onclick="showAddUser()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-sm font-semibold transition">
+      <i class="fas fa-plus text-xs"></i>Novo Usuário
+    </button>
+  </div>
+  <div class="bg-gray-800 rounded-xl border border-gray-700/60 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-700/60 text-gray-500 text-xs uppercase tracking-wider">
+          <th class="px-4 py-3 text-left">Usuário</th>
+          <th class="px-4 py-3 text-left">Login</th>
+          <th class="px-4 py-3 text-left">Perfil</th>
+          <th class="px-4 py-3 text-center">Status</th>
+          <th class="px-4 py-3 text-center w-20">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${users.map(u=>`
+        <tr class="border-b border-gray-700/40 hover:bg-gray-700/20 transition">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-full ${u.id==='__master__'?'bg-purple-600':u.role==='admin'?'bg-blue-600':'bg-gray-600'} flex items-center justify-center text-xs font-bold shrink-0">
+                ${u.name.charAt(0).toUpperCase()}
+              </div>
+              <span class="text-white font-medium text-sm">${u.name}</span>
+            </div>
+          </td>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${u.login}</td>
+          <td class="px-4 py-3">
+            <span class="px-2 py-0.5 rounded text-xs font-medium ${u.role==='master'?'bg-purple-500/20 text-purple-400':u.role==='admin'?'bg-blue-500/20 text-blue-400':'bg-gray-600/60 text-gray-300'}">
+              ${u.role==='master'?'Master':u.role==='admin'?'Administrador':'Padrão'}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-center">
+            <span class="px-2 py-0.5 rounded text-xs font-medium ${u.active!==false?'bg-emerald-500/15 text-emerald-400':'bg-red-500/15 text-red-400'}">
+              ${u.active!==false?'Ativo':'Inativo'}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-center">
+            ${u.id==='__master__'?'<span class="text-gray-700 text-xs">—</span>':`
+            <button onclick="showAddUser('${u.id}')" class="w-7 h-7 inline-flex items-center justify-center rounded text-gray-600 hover:text-indigo-400 hover:bg-indigo-400/10 transition" title="Editar">
+              <i class="fas fa-pen text-xs"></i>
+            </button>
+            <button onclick="toggleActive('${u.id}')" class="w-7 h-7 inline-flex items-center justify-center rounded text-gray-600 hover:text-${u.active!==false?'red':'emerald'}-400 hover:bg-${u.active!==false?'red':'emerald'}-400/10 transition" title="${u.active!==false?'Desativar':'Ativar'}">
+              <i class="fas fa-${u.active!==false?'ban':'circle-check'} text-xs"></i>
+            </button>`}
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function showAddUser(uid=null){
+  const users=getUsers();
+  const u=uid?users.find(x=>x.id===uid):null;
+  const isMaster=currentUser.role==='master';
+  showModal(u?'Editar Usuário':'Novo Usuário',`
+  <div class="space-y-4">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1.5">Nome Completo *</label>
+      <input id="u-name" type="text" value="${u?.name||''}" placeholder="Ex: João Silva" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Login *</label>
+        <input id="u-login" type="text" value="${u?.login||''}" placeholder="nome.usuario" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1.5">Perfil *</label>
+        <select id="u-role" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white">
+          ${isMaster?`<option value="admin" ${u?.role==='admin'?'selected':''}>Administrador</option>`:''}
+          <option value="padrao" ${u?.role==='padrao'||!u?'selected':''}>Padrão</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1.5">Senha${u?' (deixe em branco para manter)':' *'}</label>
+      <div class="relative">
+        <input id="u-pass" type="password" placeholder="${u?'Nova senha (opcional)':'Senha de acesso'}" class="w-full bg-gray-700 border border-gray-600/60 rounded-lg px-3 py-2 text-sm text-white pr-11">
+        <button type="button" onclick="togglePwd('u-pass')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition"><i class="fas fa-eye text-sm"></i></button>
+      </div>
+    </div>
+    <input type="hidden" id="u-id" value="${u?.id||''}">
+    <div id="modal-err" class="hidden text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg"></div>
+  </div>`,'saveUser');
+}
+
+function saveUser(){
+  const name=document.getElementById('u-name').value.trim();
+  const login=document.getElementById('u-login').value.trim();
+  const role=document.getElementById('u-role').value;
+  const pass=document.getElementById('u-pass').value;
+  const id=document.getElementById('u-id').value;
+  if(!name||!login)return mErr('Nome e login são obrigatórios.');
+  if(!id&&!pass)return mErr('A senha é obrigatória para novos usuários.');
+  const users=getUsers().filter(u=>u.id!=='__master__');
+  const dup=users.find(u=>u.login===login&&u.id!==id);
+  if(dup)return mErr('Este login já está em uso por outro usuário.');
+  if(id){
+    const idx=users.findIndex(u=>u.id===id);
+    if(idx>=0){users[idx].name=name;users[idx].login=login;users[idx].role=role;if(pass)users[idx].password=pass;}
+  }else{
+    const defPerms={dashboard:true,cashflow:false,debts:false,investments:false,reports:false};
+    const fullPerms={dashboard:true,cashflow:true,debts:true,investments:true,reports:true};
+    users.push({id:genId(),name,login,password:pass,role,active:true,permissions:role==='admin'?fullPerms:defPerms});
+  }
+  saveUsers(users);
+  closeModal();renderPage('users');
+}
+
+function toggleActive(id){
+  const users=getUsers().filter(u=>u.id!=='__master__');
+  const u=users.find(x=>x.id===id);
+  if(u){u.active=u.active===false;saveUsers(users);renderPage('users');}
+}
+
+// =====================================================
+// PERMISSÕES
+// =====================================================
+const PERM_PAGES=[
+  {id:'dashboard',label:'Dashboard'},
+  {id:'cashflow',label:'Caixa'},
+  {id:'debts',label:'Parcelamentos'},
+  {id:'investments',label:'Investimentos'},
+  {id:'reports',label:'Relatórios'},
+];
+
+function renderPermissions(c){
+  const users=getUsers().filter(u=>u.id!=='__master__'&&u.role==='padrao');
+  c.innerHTML=`
+  <div class="mb-5">
+    <h1 class="text-xl font-bold text-white">Permissões de Acesso</h1>
+    <p class="text-gray-400 text-sm">Controle quais telas cada usuário padrão pode acessar</p>
+  </div>
+  ${users.length===0?`
+  <div class="bg-gray-800 rounded-xl border border-gray-700/60 p-12 text-center text-gray-500">
+    <i class="fas fa-shield-halved text-4xl mb-3 opacity-20"></i>
+    <p class="text-sm">Nenhum usuário padrão cadastrado ainda.</p>
+    <p class="text-xs mt-1">Crie usuários com perfil <span class="text-gray-400">Padrão</span> na aba Usuários.</p>
+  </div>`:
+  `<div class="space-y-3">
+    ${users.map(u=>`
+    <div class="bg-gray-800 rounded-2xl border border-gray-700/60 p-5">
+      <div class="flex items-center gap-3 mb-4 pb-4 border-b border-gray-700/60">
+        <div class="w-9 h-9 rounded-full bg-gray-600 flex items-center justify-center font-bold text-sm shrink-0">${u.name.charAt(0)}</div>
+        <div>
+          <p class="font-semibold text-white text-sm">${u.name}</p>
+          <p class="text-xs text-gray-500">${u.login} · Usuário Padrão</p>
+        </div>
+        <span class="ml-auto text-xs px-2 py-0.5 rounded ${u.active!==false?'bg-emerald-500/15 text-emerald-400':'bg-red-500/15 text-red-400'}">${u.active!==false?'Ativo':'Inativo'}</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+        ${PERM_PAGES.map(p=>`
+        <label class="flex items-center gap-2.5 cursor-pointer group">
+          <div class="relative shrink-0">
+            <input type="checkbox" ${u.permissions?.[p.id]?'checked':''} onchange="setPerm('${u.id}','${p.id}',this.checked)" class="sr-only peer">
+            <div class="w-9 h-5 bg-gray-600 rounded-full peer-checked:bg-indigo-600 transition-colors"></div>
+            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4"></div>
+          </div>
+          <span class="text-xs text-gray-400 group-hover:text-white transition">${p.label}</span>
+        </label>`).join('')}
+      </div>
+    </div>`).join('')}
+  </div>`}`;
+}
+
+function setPerm(uid,page,val){
+  const users=getUsers().filter(u=>u.id!=='__master__');
+  const u=users.find(x=>x.id===uid);
+  if(u){
+    if(!u.permissions)u.permissions={};
+    u.permissions[page]=val;
+    saveUsers(users);
+    if(currentUser.id===uid){currentUser.permissions[page]=val;DB.set('fin_session',currentUser);}
+  }
+}
+
+// =====================================================
+// START
+// =====================================================
+renderApp();
+</script>
+</body>
+</html>
