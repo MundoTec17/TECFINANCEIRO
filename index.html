@@ -273,6 +273,8 @@ const UI_STATE = {
 let currentUser = getUserById(DB.get('fin_session', null));
 
 function getFirstAllowedPage(){
+  if(hasPermission('dashboard')) return 'inicio';
+
   const first = NAV.find(n => hasPermission(n.perm));
   return first ? first.id : 'dashboard';
 }
@@ -394,6 +396,7 @@ const INV_COLORS=['#6366f1','#10b981','#f59e0b','#3b82f6','#f97316','#14b8a6','#
 // NAVEGAÇÃO / ROTAS / CONTROLE DE TELAS
 // =====================================================
 const NAV=[
+  {id:'inicio',label:'Início',icon:'fa-house',perm:'dashboard'},
   {id:'dashboard',label:'Dashboard',icon:'fa-gauge-high',perm:'dashboard'},
   {id:'cadastro',label:'Cadastro',icon:'fa-address-book',perm:'cadastro'},
   {id:'financeiro',label:'Financeiro',icon:'fa-dollar-sign',perm:'financeiro'},
@@ -603,6 +606,7 @@ function renderPage(p){
   if(!c) return;
 
   ({
+    inicio:renderTelaInicial,
     dashboard:renderDashboard,
     cadastro:renderCadastro, 
     financeiro:renderFinanceiro,
@@ -770,6 +774,33 @@ function renderServicos(c){
     </p>
   </div>
   `;
+}
+// =====================================================
+// TELA INICIAL DO SISTEMA
+// =====================================================
+function renderTelaInicial(c){
+  c.innerHTML=`
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-white">Tela Inicial</h1>
+    <p class="text-gray-400 text-sm">Bem-vindo ao sistema. Escolha um módulo para começar.</p>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div onclick="navigate('cadastro')" class="cursor-pointer bg-gray-800 rounded-2xl p-5 border border-gray-700/60 hover:bg-gray-700/40 transition">
+      <h2 class="text-white font-semibold mb-2">Cadastro</h2>
+      <p class="text-gray-400 text-sm">Clientes, serviços, produtos e colaboradores.</p>
+    </div>
+
+    <div onclick="navigate('servicos')" class="cursor-pointer bg-gray-800 rounded-2xl p-5 border border-gray-700/60 hover:bg-gray-700/40 transition">
+      <h2 class="text-white font-semibold mb-2">Serviços</h2>
+      <p class="text-gray-400 text-sm">Gestão dos serviços do sistema.</p>
+    </div>
+
+    <div onclick="navigate('financeiro')" class="cursor-pointer bg-gray-800 rounded-2xl p-5 border border-gray-700/60 hover:bg-gray-700/40 transition">
+      <h2 class="text-white font-semibold mb-2">Financeiro</h2>
+      <p class="text-gray-400 text-sm">Controle financeiro e visão geral.</p>
+    </div>
+  </div>`;
 }
 // =====================================================
 // TELA DE DASHBOARD
