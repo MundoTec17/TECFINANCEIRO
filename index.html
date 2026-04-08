@@ -62,6 +62,7 @@ const LOCAL_ONLY_KEYS = new Set(['fin_session']);
 
 const ADMIN_FIXED_PERMISSIONS = {
   dashboard: true,
+  cadastro: true,
   cashflow: true,
   debts: true,
   investments: true,
@@ -72,6 +73,7 @@ const ADMIN_FIXED_PERMISSIONS = {
 
 const DEFAULT_STANDARD_PERMISSIONS = {
   dashboard: true,
+  cadastro: false,
   cashflow: false,
   debts: false,
   investments: false,
@@ -389,6 +391,7 @@ const INV_COLORS=['#6366f1','#10b981','#f59e0b','#3b82f6','#f97316','#14b8a6','#
 // =====================================================
 const NAV=[
   {id:'dashboard',label:'Dashboard',icon:'fa-gauge-high',perm:'dashboard'},
+  {id:'cadastro',label:'Cadastro',icon:'fa-address-book',perm:'cadastro'},
   {id:'cashflow',label:'Caixa',icon:'fa-money-bill-transfer',perm:'cashflow'},
   {id:'debts',label:'Parcelamentos',icon:'fa-credit-card',perm:'debts'},
   {id:'investments',label:'Investimentos',icon:'fa-chart-pie',perm:'investments'},
@@ -595,6 +598,7 @@ function renderPage(p){
 
   ({
     dashboard:renderDashboard,
+    cadastro:renderCadastro, 
     cashflow:renderCashFlow,
     debts:renderDebts,
     investments:renderInvestments,
@@ -660,6 +664,71 @@ function mErr(msg){
   }
 }
 
+// =====================================================
+// TELA DE CADASTRO
+// =====================================================
+function renderCadastro(c){
+  c.innerHTML=`
+  <div class="mb-5">
+    <h1 class="text-xl font-bold text-white">Cadastro</h1>
+    <p class="text-gray-400 text-sm">Área inicial do módulo de cadastros</p>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+          <i class="fas fa-user text-indigo-400"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-white">Clientes</h2>
+          <p class="text-xs text-gray-500">Cadastro de clientes</p>
+        </div>
+      </div>
+      <p class="text-sm text-gray-400">Cadastrar, editar e organizar clientes </p>
+    </div>
+
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+          <i class="fas fa-briefcase text-emerald-400"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-white">Serviços</h2>
+          <p class="text-xs text-gray-500">Cadastro de serviços</p>
+        </div>
+      </div>
+      <p class="text-sm text-gray-400">Cadastro de serviços oferecidos</p>
+    </div>
+
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
+          <i class="fas fa-box text-amber-400"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-white">Produtos</h2>
+          <p class="text-xs text-gray-500">Cadastro de produtos</p>
+        </div>
+      </div>
+      <p class="text-sm text-gray-400">Cadastrar, editar e organizar produtos</p>
+    </div>
+    
+    <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+  <div class="flex items-center gap-3 mb-3">
+    <div class="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+      <i class="fas fa-user-tie text-cyan-400"></i>
+    </div>
+    <div>
+      <h2 class="text-base font-semibold text-white">Colaborador</h2>
+      <p class="text-xs text-gray-500">Cadastro de colaboradores</p>
+    </div>
+  </div>
+  <p class="text-sm text-gray-400"> Cadastrar, editar e organizar colaboradores</p>
+</div>
+
+  </div>`;
+}
 // =====================================================
 // TELA DE DASHBOARD
 // =====================================================
