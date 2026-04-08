@@ -63,6 +63,8 @@ const LOCAL_ONLY_KEYS = new Set(['fin_session']);
 const ADMIN_FIXED_PERMISSIONS = {
   dashboard: true,
   cadastro: true,
+  financeiro: true,
+  servicos: true,
   cashflow: true,
   debts: true,
   investments: true,
@@ -74,6 +76,8 @@ const ADMIN_FIXED_PERMISSIONS = {
 const DEFAULT_STANDARD_PERMISSIONS = {
   dashboard: true,
   cadastro: false,
+  financeiro: false,
+  servicos: false,
   cashflow: false,
   debts: false,
   investments: false,
@@ -392,6 +396,8 @@ const INV_COLORS=['#6366f1','#10b981','#f59e0b','#3b82f6','#f97316','#14b8a6','#
 const NAV=[
   {id:'dashboard',label:'Dashboard',icon:'fa-gauge-high',perm:'dashboard'},
   {id:'cadastro',label:'Cadastro',icon:'fa-address-book',perm:'cadastro'},
+  {id:'financeiro',label:'Financeiro',icon:'fa-dollar-sign',perm:'financeiro'},
+  {id:'servicos',label:'Serviços',icon:'fa-briefcase',perm:'servicos'},
   {id:'cashflow',label:'Caixa',icon:'fa-money-bill-transfer',perm:'cashflow'},
   {id:'debts',label:'Parcelamentos',icon:'fa-credit-card',perm:'debts'},
   {id:'investments',label:'Investimentos',icon:'fa-chart-pie',perm:'investments'},
@@ -599,6 +605,8 @@ function renderPage(p){
   ({
     dashboard:renderDashboard,
     cadastro:renderCadastro, 
+    financeiro:renderFinanceiro,
+    servicos:renderServicos,
     cashflow:renderCashFlow,
     debts:renderDebts,
     investments:renderInvestments,
@@ -728,6 +736,40 @@ function renderCadastro(c){
 </div>
 
   </div>`;
+}
+// =====================================================
+// TELA FINANCEIRO
+// =====================================================
+function renderFinanceiro(c){
+  c.innerHTML=`
+  <div class="mb-5">
+    <h1 class="text-xl font-bold text-white">Financeiro</h1>
+    <p class="text-gray-400 text-sm">Controle financeiro geral</p>
+  </div>
+
+  <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+    <p class="text-gray-400 text-sm">
+      Aqui você terá visão geral do financeiro.
+    </p>
+  </div>
+  `;
+}
+// =====================================================
+// TELA DE SERVIÇOS
+// =====================================================
+function renderServicos(c){
+  c.innerHTML=`
+  <div class="mb-5">
+    <h1 class="text-xl font-bold text-white">Serviços</h1>
+    <p class="text-gray-400 text-sm">Gestão de serviços do sistema</p>
+  </div>
+
+  <div class="bg-gray-800 rounded-2xl p-5 border border-gray-700/60">
+    <p class="text-gray-400 text-sm">
+      Aqui você vai gerenciar os serviços cadastrados.
+    </p>
+  </div>
+  `;
 }
 // =====================================================
 // TELA DE DASHBOARD
