@@ -1209,3 +1209,41 @@ renderApp();
 </script>
 </body>
 </html>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBpavrJi1l-lGCPxeY8alocCDMbCXjy3Jk",
+  authDomain: "tecfinanceiro-6122e.firebaseapp.com",
+  projectId: "tecfinanceiro-6122e",
+  storageBucket: "tecfinanceiro-6122e.firebasestorage.app",
+  messagingSenderId: "480614835484",
+  appId: "1:480614835484:web:07d1fa0aa62f8d39d346d9"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// SALVAR DADO
+async function salvarTeste() {
+  await addDoc(collection(db, "teste"), {
+    nome: "Junior",
+    valor: 100,
+    data: new Date()
+  });
+  console.log("🔥 SALVO NO FIREBASE");
+}
+
+// LER DADO
+async function lerTeste() {
+  const querySnapshot = await getDocs(collection(db, "teste"));
+  querySnapshot.forEach((doc) => {
+    console.log("📦", doc.id, doc.data());
+  });
+}
+
+// Executa
+salvarTeste();
+lerTeste();
+</script>
