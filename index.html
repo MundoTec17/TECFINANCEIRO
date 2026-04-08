@@ -273,7 +273,9 @@ const UI_STATE = {
 let currentUser = getUserById(DB.get('fin_session', null));
 
 function getFirstAllowedPage(){
-  if(hasPermission('dashboard')) return 'inicio';
+  if(window.location.hash){
+    return window.location.hash.replace('#','');
+  }
 
   const first = NAV.find(n => hasPermission(n.perm));
   return first ? first.id : 'dashboard';
@@ -515,9 +517,11 @@ function renderMain(page){
   const navItems = NAV.filter(n => hasPermission(n.perm));
 
   if(!hasPermission(page)){
-    const first = navItems[0];
-    if(first){navigate(first.id);return;}
+  const first = navItems[0];
+  if(first){
+    page = first.id; 
   }
+}
 
   const roleLabel={master:'Master',admin:'Administrador',padrao:'Padrão'}[currentUser.role]||currentUser.role;
 
