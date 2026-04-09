@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<head>
+
+  <!-- ===================================================== -->
+  <!-- ESTILO GLOBAL DO SISTEMA -->
+  <!-- ===================================================== -->
+  <link rel="stylesheet" href="style.css">
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Junior Financeiro — Controle Financeiro Pessoal</title>
@@ -1805,9 +1812,52 @@ function setPerm(uid,page,val){
 }
 
 // =====================================================
+// STATUS DE SINCRONIZAÇÃO (UI GLOBAL)
+// =====================================================
+
+const SyncStatus = {
+  IDLE: 'idle',
+  SAVING: 'saving',
+  SYNCED: 'synced',
+  PENDING: 'pending',
+  ERROR: 'error',
+  RETRYING: 'retrying',
+  OFFLINE: 'offline'
+};
+
+
+function updateSyncStatus(status, extraText = '') {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+
+  const labels = {
+    idle: 'Aguardando',
+    saving: 'Salvando...',
+    synced: 'Sincronizado',
+    pending: 'Pendente',
+    error: 'Erro na sincronização',
+    retrying: 'Tentando novamente...',
+    offline: 'Sem conexão'
+  };
+
+  const hideWhen = ['idle', 'synced'];
+
+  el.className = `sync-status ${status}`;
+  el.textContent = `Status: ${extraText || labels[status]}`;
+
+  if (hideWhen.includes(status)) {
+    el.classList.add('hidden');
+  } else {
+    el.classList.remove('hidden');
+  }
+}
+
+// =====================================================
 // INICIALIZAÇÃO DO SISTEMA
 // =====================================================
 async function iniciarSistema(){
+  updateSyncStatus('saving');
+
   await syncFromFirebase('fin_users');
   await syncFromFirebase('fin_transactions');
   await syncFromFirebase('fin_debts');
@@ -1818,10 +1868,26 @@ async function iniciarSistema(){
   currentUser = getUserById(DB.get('fin_session', null));
 
   console.log('🚀 Sistema sincronizado!');
+
+  updateSyncStatus('synced');
+
   renderApp();
 }
 
 iniciarSistema();
 </script>
+
+<!-- ===================================================== -->
+<!-- STATUS DE SINCRONIZAÇÃO -->
+<!-- ===================================================== -->
+<div id="sync-status" class="sync-status hidden idle">
+  Status: Aguardando
+</div>
+
+<!-- ===================================================== -->
+<!-- TOAST GLOBAL DO SISTEMA -->
+<!-- ===================================================== -->
+<div id="app-toast" class="toast hidden"></div>
+
 </body>
 </html>
