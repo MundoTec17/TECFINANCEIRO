@@ -1851,6 +1851,53 @@ function updateSyncStatus(status, extraText = '') {
     el.classList.remove('hidden');
   }
 }
+// =====================================================
+// EXECUÇÃO PADRÃO DE AÇÕES COM STATUS
+// =====================================================
+
+async function runWithSyncFeedback(actionFn, messages = {}) {
+  const {
+    loading = 'Salvando...',
+    success = 'Operação concluída com sucesso.',
+    error = 'Erro ao concluir a operação.'
+  } = messages;
+
+  try {
+    updateSyncStatus('saving', loading);
+
+    const result = await actionFn();
+
+    updateSyncStatus('synced');
+    showToast(success, 'success', 2500);
+
+    return result;
+  } catch (err) {
+    console.error('Erro na operação:', err);
+
+    updateSyncStatus('error');
+    showToast(error, 'error', 3500);
+
+    throw err;
+  }
+}
+// =====================================================
+// TOAST GLOBAL DO SISTEMA
+// =====================================================
+
+function showToast(message, type = 'info', duration = 2500) {
+  const toast = document.getElementById('app-toast');
+  if (!toast) return;
+
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+
+  clearTimeout(toast._timer);
+
+  toast._timer = setTimeout(() => {
+    toast.className = 'toast hidden';
+  }, duration);
+}
+
 
 // =====================================================
 // INICIALIZAÇÃO DO SISTEMA
