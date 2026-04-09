@@ -1743,7 +1743,7 @@ function toggleActive(id){
 
 // =====================================================
 // TELA DE PERMISSÕES
-// ITEM 9/10/11 AJUSTADOS
+// 
 // =====================================================
 const PERM_PAGES=[
   {id:'dashboard',label:'Dashboard'},
@@ -1898,7 +1898,65 @@ function showToast(message, type = 'info', duration = 2500) {
   }, duration);
 }
 
+runWithSyncFeedback(
+  async () => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  },
+  {
+    loading: 'Testando sincronização...',
+    success: 'Teste concluído com sucesso.',
+    error: 'Erro no teste.'
+  }
+)
+// =====================================================
+// EXECUÇÃO COM RETRY AUTOMÁTICO
+// =====================================================
 
+async function runWithRetry(actionFn, messages = {}, options = {}) {
+  const {
+    loading = 'Salvando...',
+    success = 'Operação concluída com sucesso.',
+    error = 'Erro ao concluir a operação.',
+    retrying = 'Tentando novamente...'
+  } = messages;
+
+  const {
+    maxRetries = 3,
+    retryDelay = 2000
+  } = options;
+
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    try {
+      if (attempt === 0) {
+        updateSyncStatus('saving', loading);
+      } else {
+        updateSyncStatus('retrying', `${retrying} (${attempt}/${maxRetries})`);
+        showToast(`${retrying} (${attempt}/${maxRetries})`, 'warning', 2000);
+      }
+
+      const result = await actionFn();
+
+      updateSyncStatus('synced');
+      showToast(success, 'success', 2500);
+
+      return result;
+    } catch (err) {
+      attempt++;
+
+      console.error(`Tentativa ${attempt} falhou:`, err);
+
+      if (attempt > maxRetries) {
+        updateSyncStatus('error', 'Erro na sincronização');
+        showToast(error, 'error', 3500);
+        throw err;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+  }
+}
 // =====================================================
 // INICIALIZAÇÃO DO SISTEMA
 // =====================================================
