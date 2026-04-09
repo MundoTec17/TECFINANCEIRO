@@ -4,15 +4,18 @@
 
 .sync-status {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  font-size: 13px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
   font-weight: 600;
-  z-index: 9999;
+  z-index: 99999;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   transition: all 0.25s ease;
+  width: auto;
+  max-width: 420px;
 }
 
 /* escondido */
@@ -29,6 +32,21 @@
 .sync-status.error { background: #fef2f2; color: #991b1b; }
 .sync-status.retrying { background: #eff6ff; color: #1d4ed8; }
 .sync-status.offline { background: #f3f4f6; color: #374151; }
+
+/* ===================================================== */
+/* MOBILE */
+/* ===================================================== */
+
+@media (max-width: 768px) {
+  .sync-status {
+    left: 12px;
+    right: 12px;
+    bottom: 70px;
+    max-width: none;
+    font-size: 14px;
+    padding: 12px 14px;
+  }
+}
 
 /* ===================================================== */
 /* TOAST (NOTIFICAÇÕES RÁPIDAS) */
