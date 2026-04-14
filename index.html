@@ -214,7 +214,7 @@ async function migrateLegacyUsersPasswords(){
 
 // =====================================================
 // USUÁRIOS / AUTENTICAÇÃO / SESSÃO
-// MASTER = usuário fantasma
+// 
 // =====================================================
 const MASTER = {
   id:'__master__',
@@ -267,7 +267,7 @@ async function authenticate(login, pass){
 }
 
 // =====================================================
-// ESTADO DA INTERFACE (ITEM 23)
+// ESTADO DA INTERFACE 
 // Separado dos dados reais do sistema
 // =====================================================
 const UI_STATE = {
@@ -318,59 +318,206 @@ function hasPermission(page){
   return !!(currentUser.permissions && currentUser.permissions[page]);
 }
 
-// =====================================================
+// ====// =====================================================
 // DADOS — TRANSAÇÕES
 // =====================================================
-function getTx(){return DB.get('fin_transactions',[])||[]}
-function saveTx(list){DB.set('fin_transactions',list)}
-function addTx(t){const list=getTx();list.push({...t,id:genId()});saveTx(list)}
-function delTx(id){saveTx(getTx().filter(t=>t.id!==id))}
+
+// =====================================================
+// OBTER TRANSAÇÕES
+// =====================================================
+function getTx(){
+  return DB.get('fin_transactions',[]) || [];
+}
+
+// =====================================================
+// SALVAR LISTA DE TRANSAÇÕES (COM SINCRONIZAÇÃO)
+// =====================================================
+async function saveTx(list){
+  await persistDataWithRetry(
+    'fin_transactions',
+    list,
+    {
+      loading: 'Salvando transações...',
+      success: 'Transações sincronizadas com sucesso.',
+      error: 'Erro ao salvar transações.',
+      retrying: 'Tentando novamente...'
+    },
+    {
+      maxRetries: 3,
+      retryDelay: 2000
+    }
+  );
+}
+
+// =====================================================
+// ADICIONAR TRANSAÇÃO (COM RETRY)
+// =====================================================
+async function addTx(t){
+  const list = getTx();
+
+  list.push({
+    ...t,
+    id: genId()
+  });
+
+  await saveTx(list);
+}
+
+// =====================================================
+// REMOVER TRANSAÇÃO (COM RETRY)
+// =====================================================
+async function delTx(id){
+  const list = getTx().filter(t => t.id !== id);
+
+  await saveTx(list);
+}
 
 // =====================================================
 // DADOS — DÍVIDAS / PARCELAMENTOS
 // =====================================================
-function getDebts(){return DB.get('fin_debts',[])||[]}
-function saveDebts(list){DB.set('fin_debts',list)}
-function addDebt(d){
-  const list=getDebts();
-  const installmentList=[];
-  const start=new Date(d.startDate+'T12:00:00');
 
-  for(let i=0;i<d.installments;i++){
-    const due=new Date(start);
-    due.setMonth(due.getMonth()+i);
+// =====================================================
+// OBTER DÍVIDAS
+// =====================================================
+function getDebts(){
+  return DB.get('fin_debts',[]) || [];
+}
+
+// =====================================================
+// SALVAR DÍVIDAS (COM SINCRONIZAÇÃO)
+// =====================================================
+async function saveDebts(list){
+  await persistDataWithRetry(
+    'fin_debts',
+    list,
+    {
+      loading: 'Salvando dívidas...',
+      success: 'Dívidas sincronizadas com sucesso.',
+      error: 'Erro ao salvar dívidas.',
+      retrying: 'Tentando novamente...'
+    },
+    {
+      maxRetries: 3,
+      retryDelay: 2000
+    }
+  );
+}
+
+// =====================================================
+// ADICIONAR DÍVIDA (COM RETRY)
+// =====================================================
+async function addDebt(d){
+  const list = getDebts();
+  const installmentList = [];
+  const start = new Date(d.startDate + 'T12:00:00');
+
+  for(let i = 0; i < d.installments; i++){
+    const due = new Date(start);
+    due.setMonth(due.getMonth() + i);
+
     installmentList.push({
-      num:i+1,
-      dueDate:due.toISOString().split('T')[0],
-      paid:false,
-      paidDate:null
+      num: i + 1,
+      dueDate: due.toISOString().split('T')[0],
+      paid: false,
+      paidDate: null
     });
   }
 
-  list.push({...d,id:genId(),installmentList});
-  saveDebts(list);
+  list.push({
+    ...d,
+    id: genId(),
+    installmentList
+  });
+
+  await saveDebts(list);
 }
-function updateDebt(debt){
-  const list=getDebts();
-  const i=list.findIndex(d=>d.id===debt.id);
-  if(i>=0) list[i]=debt;
-  saveDebts(list);
+
+// =====================================================
+// ATUALIZAR DÍVIDA (COM RETRY)
+// =====================================================
+async function updateDebt(debt){
+  const list = getDebts();
+  const i = list.findIndex(d => d.id === debt.id);
+
+  if (i >= 0) list[i] = debt;
+
+  await saveDebts(list);
 }
-function delDebt(id){saveDebts(getDebts().filter(d=>d.id!==id))}
+
+// =====================================================
+// REMOVER DÍVIDA (COM RETRY)
+// =====================================================
+async function delDebt(id){
+  const list = getDebts().filter(d => d.id !== id);
+  await saveDebts(list);
+}
+
+
 
 // =====================================================
 // DADOS — INVESTIMENTOS
 // =====================================================
-function getInvs(){return DB.get('fin_investments',[])||[]}
-function saveInvs(list){DB.set('fin_investments',list)}
-function addInv(inv){const list=getInvs();list.push({...inv,id:genId()});saveInvs(list)}
-function updateInv(inv){
-  const list=getInvs();
-  const i=list.findIndex(x=>x.id===inv.id);
-  if(i>=0) list[i]=inv;
-  saveInvs(list);
+
+// =====================================================
+// OBTER INVESTIMENTOS
+// =====================================================
+function getInvs(){
+  return DB.get('fin_investments',[]) || [];
 }
-function delInv(id){saveInvs(getInvs().filter(i=>i.id!==id))}
+
+// =====================================================
+// SALVAR INVESTIMENTOS (COM SINCRONIZAÇÃO)
+// =====================================================
+async function saveInvs(list){
+  await persistDataWithRetry(
+    'fin_investments',
+    list,
+    {
+      loading: 'Salvando investimentos...',
+      success: 'Investimentos sincronizados com sucesso.',
+      error: 'Erro ao salvar investimentos.',
+      retrying: 'Tentando novamente...'
+    },
+    {
+      maxRetries: 3,
+      retryDelay: 2000
+    }
+  );
+}
+
+// =====================================================
+// ADICIONAR INVESTIMENTO (COM RETRY)
+// =====================================================
+async function addInv(inv){
+  const list = getInvs();
+
+  list.push({
+    ...inv,
+    id: genId()
+  });
+
+  await saveInvs(list);
+}
+
+// =====================================================
+// ATUALIZAR INVESTIMENTO (COM RETRY)
+// =====================================================
+async function updateInv(inv){
+  const list = getInvs();
+  const i = list.findIndex(x => x.id === inv.id);
+
+  if (i >= 0) list[i] = inv;
+
+  await saveInvs(list);
+}
+
+// =====================================================
+// REMOVER INVESTIMENTO (COM RETRY)
+// =====================================================
+async function delInv(id){
+  const list = getInvs().filter(i => i.id !== id);
+  await saveInvs(list);
+}
 
 // =====================================================
 // FUNÇÕES UTILITÁRIAS GERAIS
@@ -1560,7 +1707,6 @@ function renderReports(c){
 
 // =====================================================
 // TELA DE USUÁRIOS
-// MASTER NÃO APARECE — USUÁRIO FANTASMA
 // =====================================================
 function renderUsers(c){
   const users=getVisibleUsers();
@@ -1825,7 +1971,6 @@ const SyncStatus = {
   OFFLINE: 'offline'
 };
 
-
 function updateSyncStatus(status, extraText = '') {
   const el = document.getElementById('sync-status');
   if (!el) return;
@@ -1843,7 +1988,7 @@ function updateSyncStatus(status, extraText = '') {
   const hideWhen = ['idle', 'synced'];
 
   el.className = `sync-status ${status}`;
-  el.textContent = `Status: ${extraText || labels[status]}`;
+  el.textContent = `Status: ${extraText || labels[status] || '...'}`;
 
   if (hideWhen.includes(status)) {
     el.classList.add('hidden');
@@ -1851,6 +1996,25 @@ function updateSyncStatus(status, extraText = '') {
     el.classList.remove('hidden');
   }
 }
+
+// =====================================================
+// TOAST GLOBAL DO SISTEMA
+// =====================================================
+
+function showToast(message, type = 'info', duration = 2500) {
+  const toast = document.getElementById('app-toast');
+  if (!toast) return;
+
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+
+  clearTimeout(toast._timer);
+
+  toast._timer = setTimeout(() => {
+    toast.className = 'toast hidden';
+  }, duration);
+}
+
 // =====================================================
 // EXECUÇÃO PADRÃO DE AÇÕES COM STATUS
 // =====================================================
@@ -1880,34 +2044,7 @@ async function runWithSyncFeedback(actionFn, messages = {}) {
     throw err;
   }
 }
-// =====================================================
-// TOAST GLOBAL DO SISTEMA
-// =====================================================
 
-function showToast(message, type = 'info', duration = 2500) {
-  const toast = document.getElementById('app-toast');
-  if (!toast) return;
-
-  toast.className = `toast ${type}`;
-  toast.textContent = message;
-
-  clearTimeout(toast._timer);
-
-  toast._timer = setTimeout(() => {
-    toast.className = 'toast hidden';
-  }, duration);
-}
-
-runWithSyncFeedback(
-  async () => {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-  },
-  {
-    loading: 'Testando sincronização...',
-    success: 'Teste concluído com sucesso.',
-    error: 'Erro no teste.'
-  }
-)
 // =====================================================
 // EXECUÇÃO COM RETRY AUTOMÁTICO
 // =====================================================
@@ -1929,6 +2066,12 @@ async function runWithRetry(actionFn, messages = {}, options = {}) {
 
   while (attempt <= maxRetries) {
     try {
+      if (!navigator.onLine) {
+        updateSyncStatus('offline');
+        showToast('Sem conexão. A ação será tentada novamente.', 'warning', 2500);
+        throw new Error('offline');
+      }
+
       if (attempt === 0) {
         updateSyncStatus('saving', loading);
       } else {
@@ -1955,6 +2098,42 @@ async function runWithRetry(actionFn, messages = {}, options = {}) {
 
       await new Promise(resolve => setTimeout(resolve, retryDelay));
     }
+  }
+}
+
+// =====================================================
+// PERSISTÊNCIA COM FEEDBACK DE SINCRONIZAÇÃO
+// =====================================================
+
+async function persistDataWithRetry(key, value, messages = {}, options = {}) {
+  try {
+    const rawBackup = localStorage.getItem(key);
+
+    if (rawBackup !== null) {
+      localStorage.setItem(`${key}_backup`, rawBackup);
+    }
+
+    localStorage.setItem(key, JSON.stringify(value));
+
+    if (LOCAL_ONLY_KEYS.has(key)) {
+      return true;
+    }
+
+    await runWithRetry(
+      async () => {
+        await db.collection('app').doc(key).set({
+          value,
+          updatedAt: new Date().toISOString()
+        });
+      },
+      messages,
+      options
+    );
+
+    return true;
+  } catch (err) {
+    console.error(`Erro ao persistir ${key}:`, err);
+    throw err;
   }
 }
 // =====================================================
