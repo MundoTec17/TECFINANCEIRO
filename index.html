@@ -2135,7 +2135,20 @@ async function persistDataWithRetry(key, value, messages = {}, options = {}) {
     return true;
   } catch (err) {
     console.error(`Erro ao persistir ${key}:`, err);
-    throw err;
+
+    // =====================================================
+    // ENFILEIRAR PENDÊNCIA DE SINCRONIZAÇÃO
+    // =====================================================
+    enqueueSyncItem({
+      type: 'set',
+      key,
+      value
+    });
+
+    updateSyncStatus('pending', 'Alterações pendentes');
+    showToast('Alteração salva localmente. Sincronização pendente.', 'warning', 4000);
+
+    return false;
   }
 }
 // =====================================================
@@ -2294,6 +2307,100 @@ function startVersionMonitor() {
   }, 60000);
 }
 // =====================================================
+// FILA DE PENDÊNCIAS DE SINCRONIZAÇÃO
+// =====================================================
+
+const SYNC_QUEUE_KEY = 'fin_sync_queue';
+
+// =====================================================
+// OBTER FILA DE PENDÊNCIAS
+// =====================================================
+function getSyncQueue() {
+  return DB.get(SYNC_QUEUE_KEY, []) || [];
+}
+// =====================================================
+// PROCESSAR FILA DE SINCRONIZAÇÃO
+// =====================================================
+
+async function processSyncQueue() {
+  const queue = getSyncQueue();
+
+  if (!queue.length) {
+    updateSyncStatus('synced');
+    return;
+  }
+
+  if (!navigator.onLine) {
+    updateSyncStatus('offline', 'Sem conexão');
+    return;
+  }
+
+  updateSyncStatus('retrying', 'Sincronizando pendências...');
+
+  for (const item of queue) {
+    try {
+      if (item.type === 'set') {
+        await db.collection('app').doc(item.key).set({
+          value: item.value,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      // remove item da fila se deu certo
+      removeSyncItem(item.id);
+
+    } catch (err) {
+      console.error('Erro ao processar item da fila:', err);
+
+      // para processamento se falhar
+      updateSyncStatus('pending', 'Pendências aguardando conexão');
+      return;
+    }
+  }
+
+  // fila processada com sucesso
+  updateSyncStatus('synced');
+  showToast('Pendências sincronizadas com sucesso.', 'success', 3000);
+}
+
+// =====================================================
+// SALVAR FILA DE PENDÊNCIAS
+// =====================================================
+function saveSyncQueue(queue) {
+  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+}
+
+// =====================================================
+// ADICIONAR ITEM NA FILA
+// =====================================================
+function enqueueSyncItem(item) {
+  const queue = getSyncQueue();
+
+  queue.push({
+    id: genId(),
+    createdAt: new Date().toISOString(),
+    ...item
+  });
+
+  saveSyncQueue(queue);
+  updateSyncStatus('pending', 'Alterações pendentes');
+}
+
+// =====================================================
+// REMOVER ITEM DA FILA
+// =====================================================
+function removeSyncItem(queueItemId) {
+  const queue = getSyncQueue().filter(item => item.id !== queueItemId);
+  saveSyncQueue(queue);
+}
+
+// =====================================================
+// LIMPAR FILA
+// =====================================================
+function clearSyncQueue() {
+  saveSyncQueue([]);
+}
+// =====================================================
 // INICIALIZAÇÃO DO SISTEMA
 // =====================================================
 async function iniciarSistema(){
@@ -2312,6 +2419,18 @@ async function iniciarSistema(){
   updateSyncStatus('synced');
 
   renderApp();
+// =====================================================
+// PROCESSAR FILA AO INICIAR
+// =====================================================
+processSyncQueue();
+
+// =====================================================
+// MONITORAR VOLTA DA CONEXÃO
+// =====================================================
+window.addEventListener('online', () => {
+  showToast('Conexão restabelecida. Sincronizando...', 'info', 3000);
+  processSyncQueue();
+});
 
   // =====================================================
   // INICIAR MONITORAMENTO DE VERSÃO
