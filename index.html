@@ -642,7 +642,9 @@ function renderLogin(){
           </button>
         </div>
       </div>
-      <p class="text-center text-gray-600 text-xs mt-5">TecFinanceiro v1.0 </p>
+     <p id="app-version-label" class="text-center text-gray-600 text-xs mt-5">
+  TecFinanceiro · Carregando versão...
+</p>
     </div>
   </div>`;
 
@@ -2205,7 +2207,15 @@ function showUpdateToast(newVersion) {
     </div>
   `;
 }
+// =====================================================
+// ATUALIZAR TEXTO DE VERSÃO NA INTERFACE
+// =====================================================
+function updateVersionLabel(version) {
+  const el = document.getElementById('app-version-label');
+  if (!el) return;
 
+  el.textContent = `TecFinanceiro v${version} · Dados salvos localmente no navegador`;
+}
 // =====================================================
 // FECHAR TOAST DE NOVA VERSÃO
 // =====================================================
@@ -2244,11 +2254,16 @@ async function checkForAppUpdate() {
     if (!response.ok) return;
 
     const data = await response.json();
-    const remoteVersion = String(data.version || '').trim();
+   const remoteVersion = String(data.version || '').trim();
 
-    if (!remoteVersion) return;
+if (!remoteVersion) return;
 
-    const appliedVersion = localStorage.getItem(VERSION_KEY);
+// =====================================================
+// ATUALIZAR VERSÃO VISÍVEL NA TELA
+// =====================================================
+updateVersionLabel(remoteVersion);
+
+const appliedVersion = localStorage.getItem(VERSION_KEY);
 
     // primeira execução → salva versão atual
     if (!appliedVersion) {
