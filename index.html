@@ -2137,63 +2137,6 @@ async function persistDataWithRetry(key, value, messages = {}, options = {}) {
   }
 }
 // =====================================================
-// CONTROLE DE VERSÃO DO SISTEMA
-// =====================================================
-
-const APP_VERSION = '1.0.2';
-
-let updateToastDismissed = false;
-
-// =====================================================
-// MOSTRAR TOAST DE NOVA VERSÃO
-// =====================================================
-function showUpdateToast(newVersion) {
-  const toast = document.getElementById('update-toast');
-  if (!toast) return;
-  if (updateToastDismissed) return;
-
-  toast.className = 'toast info';
-
-  toast.innerHTML = `
-    <div><strong>Nova versão disponível</strong></div>
-    <div style="margin-top:6px; font-size:13px;">
-      Versão atual: ${APP_VERSION}<br>
-      Nova versão: ${newVersion}
-    </div>
-
-    <div class="update-toast-actions">
-      <button class="update-toast-btn primary" onclick="applyAppUpdate()">
-        Clique aqui para atualizar
-      </button>
-
-      <button class="update-toast-btn close" onclick="dismissUpdateToast()">
-        X
-      </button>
-    </div>
-  `;
-}
-
-// =====================================================
-// FECHAR TOAST
-// =====================================================
-function dismissUpdateToast() {
-  const toast = document.getElementById('update-toast');
-  if (!toast) return;
-
-  updateToastDismissed = true;
-  toast.className = 'toast hidden';
-  toast.innerHTML = '';
-}
-
-// =====================================================
-// ATUALIZAR APP
-// =====================================================
-function applyAppUpdate() {
-  updateToastDismissed = false;
-  window.location.reload();
-}
-
-// =====================================================
 // VERIFICAR NOVA VERSÃO
 // =====================================================
 async function checkForAppUpdate() {
@@ -2229,6 +2172,113 @@ function startVersionMonitor() {
   }, 60000); // verifica a cada 1 minuto
 }
 // =====================================================
+// CONTROLE DE VERSÃO DO SISTEMA (INTELIGENTE)
+// =====================================================
+
+const VERSION_KEY = 'app_version_applied';
+let updateToastDismissed = false;
+
+// =====================================================
+// MOSTRAR TOAST DE NOVA VERSÃO
+// =====================================================
+function showUpdateToast(newVersion) {
+  const toast = document.getElementById('update-toast');
+  if (!toast) return;
+  if (updateToastDismissed) return;
+
+  toast.className = 'toast info';
+
+  toast.innerHTML = `
+    <div><strong>Nova versão disponível</strong></div>
+    <div style="margin-top:6px; font-size:13px;">
+      Nova versão: ${newVersion}
+    </div>
+
+    <div class="update-toast-actions">
+      <button class="update-toast-btn primary" onclick="applyAppUpdate('${newVersion}')">
+        Clique aqui para atualizar
+      </button>
+
+      <button class="update-toast-btn close" onclick="dismissUpdateToast()">
+        X
+      </button>
+    </div>
+  `;
+}
+
+// =====================================================
+// FECHAR TOAST DE NOVA VERSÃO
+// =====================================================
+function dismissUpdateToast() {
+  const toast = document.getElementById('update-toast');
+  if (!toast) return;
+
+  updateToastDismissed = true;
+  toast.className = 'toast hidden';
+  toast.innerHTML = '';
+}
+
+// =====================================================
+// APLICAR ATUALIZAÇÃO DO SISTEMA
+// =====================================================
+function applyAppUpdate(newVersion) {
+  // salva a nova versão como aplicada
+  localStorage.setItem(VERSION_KEY, newVersion);
+
+  // força reload sem cache
+  const url = new URL(window.location.href);
+  url.searchParams.set('v', Date.now().toString());
+
+  window.location.replace(url.toString());
+}
+
+// =====================================================
+// VERIFICAR NOVA VERSÃO REMOTA
+// =====================================================
+async function checkForAppUpdate() {
+  try {
+    const response = await fetch(`version.json?v=${Date.now()}`, {
+      cache: 'no-store'
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const remoteVersion = String(data.version || '').trim();
+
+    if (!remoteVersion) return;
+
+    const appliedVersion = localStorage.getItem(VERSION_KEY);
+
+    // primeira execução → salva versão atual
+    if (!appliedVersion) {
+      localStorage.setItem(VERSION_KEY, remoteVersion);
+      return;
+    }
+
+    // mostra toast somente se for versão nova
+    if (remoteVersion !== appliedVersion) {
+      showUpdateToast(remoteVersion);
+    }
+
+  } catch (err) {
+    console.warn('Erro ao verificar versão:', err);
+  }
+}
+
+// =====================================================
+// INICIAR MONITORAMENTO DE VERSÃO
+// =====================================================
+function startVersionMonitor() {
+  setTimeout(() => {
+    checkForAppUpdate();
+  }, 3000);
+
+  setInterval(() => {
+    checkForAppUpdate();
+  }, 60000);
+}
+// =====================================================
 // INICIALIZAÇÃO DO SISTEMA
 // =====================================================
 async function iniciarSistema(){
@@ -2238,7 +2288,6 @@ async function iniciarSistema(){
   await syncFromFirebase('fin_transactions');
   await syncFromFirebase('fin_debts');
   await syncFromFirebase('fin_investments');
-
   await migrateLegacyUsersPasswords();
 
   currentUser = getUserById(DB.get('fin_session', null));
@@ -2248,6 +2297,7 @@ async function iniciarSistema(){
   updateSyncStatus('synced');
 
   renderApp();
+
   // =====================================================
   // INICIAR MONITORAMENTO DE VERSÃO
   // =====================================================
@@ -2256,6 +2306,7 @@ async function iniciarSistema(){
 
 iniciarSistema();
 </script>
+
 <!-- ===================================================== -->
 <!-- STATUS DE SINCRONIZAÇÃO -->
 <!-- ===================================================== -->
@@ -2272,6 +2323,9 @@ iniciarSistema();
 <!-- TOAST DE NOVA VERSÃO -->
 <!-- ===================================================== -->
 <div id="update-toast" class="toast hidden info"></div>
+
+</body>
+</html>
 
 </body>
 </html>
